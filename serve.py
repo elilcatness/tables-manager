@@ -7,8 +7,8 @@ EXTENSIONS = ['csv', 'xls', 'xlsx']
 OPERATORS = {'>': (lambda x, y: x > y, 'Больше, чем'),
              '<': (lambda x, y: x < y, 'Меньше, чем'),
              '=': (lambda x, y: x == y, 'Равно'),
-             'contains': (lambda x, y: x in y, 'Содержит'),
-             '~contains': (lambda x, y: x not in y, 'Не содержит')}
+             'contains': (lambda x, y: y in x, 'Содержит'),
+             '~contains': (lambda x, y: y not in x, 'Не содержит')}
 
 DEFAULT_DELIMITER = ';'
 
@@ -43,7 +43,7 @@ class ExcelReader:
 
 
 def get_headers(filename, delimiter=';'):
-    extension = filename.split('.')[-1]
+    extension = get_extension(filename)
     if extension not in EXTENSIONS:
         return None
     if extension == 'csv':
@@ -68,7 +68,7 @@ def process_query(statements):
             statements.append(statements[0])
         processed_statements.extend([tuple(statements[idx - 3:idx]), statements[idx],
                                      tuple(statements[idx + 1:idx + 4])])
-    else:
+    if not logical_indexes:
         processed_statements.append(tuple(statements))
     return processed_statements
 
@@ -113,7 +113,6 @@ def is_empty(filename):
     try:
         if get_extension(filename) == 'csv':
             with open(filename, encoding='utf-8') as f:
-                print(f.read())
                 return not bool(f.read())
         else:
             try:
@@ -136,11 +135,33 @@ def get_reader(filename, delimiter=';'):
     return ExcelReader(filename), None
 
 
+def validate_by_filters(data, filters):
+    query = ''
+    for i, value in enumerate(filters.values()):
+        for statement in value:
+            if isinstance(statement, str):
+                query += f' {statement} '
+            else:
+                key, operator, val = statement
+                try:
+                    float(val)
+                except ValueError:
+                    val = f'"{val}"'
+                subquery = f'OPERATORS["{operator}"][0](data["{key}"], {val})'
+                query += subquery
+        if i < len(filters.values()) - 1:
+            query += ' and '
+    print(f'query: {query}')
+    print(f'eval(query): {eval(query)}')
+    return eval(query)
+
+
 def split_files(filenames, rows_count, data, add_headers=True):
     for filename in filenames:
         headers, filters, delimiter = (data[filename][key] for key in ('headers', 'filters', 'delimiter'))
         count, file_count = 0, 0
         reader, main_file = get_reader(filename, delimiter)
+        print(f'filters: {filters}')
         csv_file, writer = None, None
         for row in reader:
             if count % rows_count == 0 or count == 0:
@@ -152,10 +173,16 @@ def split_files(filenames, rows_count, data, add_headers=True):
                 writer = csv.writer(csv_file, delimiter=delimiter)
                 if add_headers and headers:
                     writer.writerow(headers)
-            print(filters)
-            exit()
-            writer.writerow(row)
-            count += 1
+                count += 1
+            else:
+                if filters:
+                    row_data = {header: val for header, val in zip(headers, row)}
+                    print(f'row_data: {row_data}')
+                    proceeded = validate_by_filters(row_data, filters)
+                    if not proceeded:
+                        continue
+                count += 1
+                writer.writerow(row)
         if main_file:
             main_file.close()
 
@@ -232,8 +259,10 @@ def manage_split_files():
                     continue
             except ValueError:
                 print('Неверно введены значения')
-    print(f'add_headers: {add_headers}')
+    print(f'correct_filenames: {correct_filenames}')
+    print(f'rows_count: {rows_count}')
     print(f'data: {data}')
+    print(f'add_headers: {add_headers}')
     split_files(correct_filenames, rows_count, data, add_headers)
 
 
