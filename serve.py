@@ -80,11 +80,12 @@ def split_files():
     set_filters = input('Будете ли Вы устанавливать фильтры? (y\\n) ')
     while set_filters:
         print(f"{'*' * 20} Меню фильтрации {'*' * 20}")
-        print(' '.join([f_name for f_name in os.listdir() if f_name.split('.')[-1] in EXTENSIONS]))
+        correct_filenames = [f_name for f_name in os.listdir() if f_name.split('.')[-1] in EXTENSIONS]
+        print(' '.join(correct_filenames))
         filename = None
         while True:
             filename = input('Введите название файла: ')
-            if filename.strip() in os.listdir():
+            if filename.strip() in correct_filenames:
                 break
             else:
                 print('Неверное название файла')
