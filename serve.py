@@ -10,6 +10,8 @@ OPERATORS = {'>': (lambda x, y: x > y, 'Больше, чем'),
              'contains': (lambda x, y: x in y, 'Содержит'),
              '~contains': (lambda x, y: x not in y, 'Не содержит')}
 
+DEFAULT_DELIMITER = ';'
+
 
 class ExcelIterator:
     def __init__(self, excel):
@@ -66,7 +68,9 @@ def process_query(statements):
             statements.append(statements[0])
         processed_statements.extend([tuple(statements[idx - 3:idx]), statements[idx],
                                      tuple(statements[idx + 1:idx + 4])])
-    return statements
+    else:
+        processed_statements.append(tuple(statements))
+    return processed_statements
 
 
 def parse_query(query):
@@ -105,6 +109,22 @@ def get_extension(filename):
     return filename.split('.')[-1]
 
 
+def is_empty(filename):
+    try:
+        if get_extension(filename) == 'csv':
+            with open(filename, encoding='utf-8') as f:
+                print(f.read())
+                return not bool(f.read())
+        else:
+            try:
+                next(iter(ExcelReader(filename)))
+            except StopIteration:
+                return True
+            return False
+    except UnicodeError:
+        return True
+
+
 def get_reader(filename, delimiter=';'):
     extension = get_extension(filename)
     if get_extension(filename) not in EXTENSIONS:
@@ -116,13 +136,13 @@ def get_reader(filename, delimiter=';'):
     return ExcelReader(filename), None
 
 
-def split_files(filenames, rows_count, filters, headers=None, delimiter=';'):
+def split_files(filenames, rows_count, data, add_headers=True):
     for filename in filenames:
-        count, file_count = -1, 0
-        reader, main_file = get_reader(filename, delimiter, skip_headers=True)
+        headers, filters, delimiter = (data[filename][key] for key in ('headers', 'filters', 'delimiter'))
+        count, file_count = 0, 0
+        reader, main_file = get_reader(filename, delimiter)
         csv_file, writer = None, None
         for row in reader:
-            count += 1
             if count % rows_count == 0 or count == 0:
                 file_count += 1
                 if csv_file:
@@ -130,9 +150,12 @@ def split_files(filenames, rows_count, filters, headers=None, delimiter=';'):
                 csv_file = open(f'{".".join(filename.split(".")[:-1])}_{file_count}.csv',
                                 'w', newline='', encoding='utf-8')
                 writer = csv.writer(csv_file, delimiter=delimiter)
-                if headers:
-                    writer.writerow(headers[filename])
+                if add_headers and headers:
+                    writer.writerow(headers)
+            print(filters)
+            exit()
             writer.writerow(row)
+            count += 1
         if main_file:
             main_file.close()
 
@@ -146,22 +169,36 @@ def manage_split_files():
             break
         except ValueError:
             print('Неверный формат, введите число ещё раз')
-    filters = {}
-    set_filters = input('Будете ли Вы устанавливать фильтры? (y\\n) ').lower() == 'y'
-    correct_filenames = [f_name for f_name in os.listdir() if f_name.split('.')[-1] in EXTENSIONS]
-    headers = {}
+    correct_filenames = [f_name for f_name in os.listdir() if get_extension(f_name) in EXTENSIONS]
+    correct_filenames = list(filter(lambda f_name: not is_empty(f_name), correct_filenames))
+    data = {filename: {'headers': [], 'filters': {}, 'delimiter': ';'} for filename in correct_filenames}
     for filename in correct_filenames:
-        headers[filename] = get_headers(filename, delimiter=';')
+        file_has_headers = input(f'Имеет ли {filename} заголовки? (y\\n) ').lower() == 'y'
+        if file_has_headers:
+            data[filename]['headers'] = get_headers(filename, delimiter=';')
+        delimiter = input(f'Введите разделитель в файле {filename} '
+                          f'(нажмите Enter для значения по умолчанию): ')
+        data[filename]['delimiter'] = delimiter if delimiter else DEFAULT_DELIMITER
+    set_filters = input('Будете ли Вы устанавливать фильтры? (y\\n) ').lower() == 'y'
+    if set_filters and not any([data[filename]['headers'] for filename in correct_filenames]):
+        print('Ни в одном из файлов, находящимся в директории, нет заголовков, '
+              'так что фильтрация невозможна')
+        set_filters = False
     while set_filters:
         print(f"{'*' * 20} Меню фильтрации {'*' * 20}")
         print(' '.join(correct_filenames))
+        exit_menu = False
         while True:
-            filename = input('Введите название файла: ')
+            filename = input('Введите название файла (для выхода - /exit): ')
+            if filename == '/exit':
+                exit_menu = True
+                break
             if filename.strip() in correct_filenames:
                 break
             else:
                 print('Неверное название файла')
-        filters[filename] = []
+        if exit_menu:
+            break
         headers = get_headers(filename)
         print(f"Столбцы: {';'.join(headers)}")
         print('Введите запросы для фильтрации в виде: НАЗВАНИЕ_СТОЛБЦА ОПЕРАТОР ЗНАЧЕНИЕ '
@@ -190,13 +227,14 @@ def manage_split_files():
                     print(', '.join([f"{statement}" for statement in operators_statements]),
                           'Are not operators', sep=' - ')
                 else:
-                    filters[filename] = process_query(statements)
-                    break
+                    data[filename]['filters'][
+                        headers[headers.index(statements[0])]] = process_query(statements)
+                    continue
             except ValueError:
                 print('Неверно введены значения')
-    for filename in correct_filenames:
-        split_file(filename, rows_count, filters, )
-    split_files(correct_filenames, rows_count, filters, headers=headers if add_headers else None)
+    print(f'add_headers: {add_headers}')
+    print(f'data: {data}')
+    split_files(correct_filenames, rows_count, data, add_headers)
 
 
 def unite_files():
