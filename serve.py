@@ -310,10 +310,8 @@ def manage_unite_files(correct_filenames):
         print(' '.join(correct_filenames))
         while True:
             headers_filename = input('Введите название файла, из которого брать заголовки '
-                                     '(если ни в одном нет - /skip): ')
+                                     '(если ни в одном нет - нажмите Enter): ')
             if not headers_filename:
-                print('Название файла не может быть пустым')
-            elif headers_filename == '/skip':
                 no_headers = True
                 break
             elif headers_filename not in correct_filenames:
