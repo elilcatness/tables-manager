@@ -4,11 +4,24 @@ import openpyxl
 
 EXTENSIONS = ['csv', 'xls', 'xlsx']
 
+
+def contains(x, y):
+    if isinstance(x, str):
+        x = x.lower()
+    if isinstance(y, str):
+        y = y.lower()
+    return y in x
+
+
+def not_contains(x, y):
+    return not contains(x, y)
+
+
 OPERATORS = {'>': (lambda x, y: x > y, 'Больше, чем'),
              '<': (lambda x, y: x < y, 'Меньше, чем'),
              '=': (lambda x, y: x == y, 'Равно'),
-             'contains': (lambda x, y: y in x, 'Содержит'),
-             '~contains': (lambda x, y: y not in x, 'Не содержит')}
+             'contains': (contains, 'Содержит'),
+             '~contains': (not_contains, 'Не содержит')}
 
 DEFAULT_DELIMITER = ';'
 
