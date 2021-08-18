@@ -68,7 +68,7 @@ def get_headers(filename, delimiter=';'):
     return headers
 
 
-def process_query(statements):
+def process_query(statements, indexes=False):
     logical_indexes = [i for i in range(len(statements)) if statements[i] in ('and', 'or')]
     processed_statements = []
     for idx in logical_indexes:
@@ -80,6 +80,10 @@ def process_query(statements):
                                      tuple(statements[idx + 1:idx + 4])])
     if not logical_indexes:
         processed_statements.append(tuple(statements))
+    if indexes:
+        for i in range(len(processed_statements)):
+            if isinstance(processed_statements[i], tuple):
+                processed_statements[i] = (int(processed_statements[i][0]),) + processed_statements[i][1:]
     return processed_statements
 
 
@@ -157,7 +161,7 @@ def validate_by_filters(data, filters):
                     float(val)
                 except ValueError:
                     val = f'"{val}"'
-                subquery = f'OPERATORS["{operator}"][0](data["{key}"], {val})'
+                subquery = f'OPERATORS["{operator}"][0](data[{key}], {val})'
                 query += subquery
         if i < len(filters.values()) - 1:
             query += ' and '
@@ -187,7 +191,9 @@ def split_files(filenames, rows_count, data, add_headers=True):
                 if headers and add_headers:
                     writer.writerow(headers)
             if filters:
-                row_data = {header: val for header, val in zip(headers, row)}
+                row_data = {key: val for key, val
+                            in zip(headers if headers
+                                   else [i for i in range(len(row))], row)}
                 skip = True
                 if not validate_by_filters(row_data, filters):
                     continue
@@ -230,10 +236,6 @@ def manage_split_files(correct_filenames):
                           f'(нажмите Enter для значения по умолчанию: "{DEFAULT_DELIMITER}"): ')
         data[filename]['delimiter'] = delimiter if delimiter else DEFAULT_DELIMITER
     set_filters = input('Будете ли Вы устанавливать фильтры? (y\\n) ').lower() == 'y'
-    if set_filters and not any([data[filename]['headers'] for filename in correct_filenames]):
-        print('Ни в одном из файлов, находящимся в директории, нет заголовков, '
-              'так что фильтрация невозможна')
-        set_filters = False
     while set_filters:
         print(f"{'*' * 20} Меню фильтрации {'*' * 20}")
         print(' '.join(correct_filenames))
@@ -249,8 +251,13 @@ def manage_split_files(correct_filenames):
                 print('Неверное название файла')
         if exit_menu:
             break
-        headers = get_headers(filename)
-        print(f"Столбцы: {';'.join(headers)}")
+        headers = data[filename]['headers']
+        if headers:
+            print(f"Столбцы: {';'.join(headers)}")
+        else:
+            print(' '.join([str(i) for i in
+                            range(1, len(get_headers(
+                                filename, delimiter=data[filename]['delimiter'])) + 1)]))
         print('Введите запросы для фильтрации в виде: НАЗВАНИЕ_СТОЛБЦА ОПЕРАТОР ЗНАЧЕНИЕ '
               '(and/or ОПЕРАТОР ЗНАЧЕНЕИЕ)n',
               f'Для выхода из меню фильтрации для файла {filename} нажмите Enter',
@@ -267,8 +274,10 @@ def manage_split_files(correct_filenames):
                 operators_statements = statements[1::3]
                 if not statements:
                     print('Значение фильтра не может быть пустым')
-                elif statements[0].lower() not in map(str.lower, headers):
+                elif headers and statements[0].lower() not in map(str.lower, headers):
                     print('Указан несуществующий столбец')
+                elif not headers and not statements[0].isdigit():
+                    print('Номер столбца должен быть целочисленным')
                 elif len(statements) < 3:
                     print('Недостаточно аргументов')
                 elif len(statements) > 3 and ('and' not in statements and 'or' not in statements):
@@ -277,8 +286,13 @@ def manage_split_files(correct_filenames):
                     print(', '.join([f"{statement}" for statement in operators_statements]),
                           'Are not operators', sep=' - ')
                 else:
-                    data[filename]['filters'][
-                        headers[headers.index(statements[0])]] = process_query(statements)
+                    if headers:
+                        data[filename]['filters'][
+                            headers[headers.index(statements[0])]] = process_query(statements)
+                    else:
+                        statements[0] = int(statements[0]) - 1
+                        data[filename]['filters'][statements[0]] = process_query(statements,
+                                                                                 indexes=True)
                     continue
             except ValueError:
                 print('Неверно введены значения')
