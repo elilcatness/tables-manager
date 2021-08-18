@@ -149,6 +149,18 @@ def get_reader(filename, delimiter=';'):
     return ExcelReader(filename), None
 
 
+def get_max_len(filename, delimiter):
+    reader, file = get_reader(filename, delimiter)
+    max_len = 0
+    for i, row in enumerate(reader):
+        if len(row) > max_len:
+            max_len = len(row)
+    if file:
+        file.close()
+    return max_len
+
+
+
 def validate_by_filters(data, filters):
     query = ''
     for i, value in enumerate(filters.values()):
@@ -165,7 +177,10 @@ def validate_by_filters(data, filters):
                 query += subquery
         if i < len(filters.values()) - 1:
             query += ' and '
-    return eval(query)
+    try:
+        return eval(query)
+    except KeyError:
+        return False
 
 
 def split_files(filenames, rows_count, data, add_headers=True):
@@ -256,8 +271,7 @@ def manage_split_files(correct_filenames):
             print(f"Столбцы: {';'.join(headers)}")
         else:
             print(' '.join([str(i) for i in
-                            range(1, len(get_headers(
-                                filename, delimiter=data[filename]['delimiter'])) + 1)]))
+                            range(1, get_max_len(filename, data[filename]['delimiter']) + 1)]))
         print('Введите запросы для фильтрации в виде: НАЗВАНИЕ_СТОЛБЦА ОПЕРАТОР ЗНАЧЕНИЕ '
               '(and/or ОПЕРАТОР ЗНАЧЕНЕИЕ)n',
               f'Для выхода из меню фильтрации для файла {filename} нажмите Enter',
