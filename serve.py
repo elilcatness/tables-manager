@@ -160,19 +160,21 @@ def split_files(filenames, rows_count, data, add_headers=True):
         headers, filters, delimiter = (data[filename][key] for key in ('headers', 'filters', 'delimiter'))
         count, file_count = 0, 0
         reader, main_file = get_reader(filename, delimiter)
+        last_message = ''
         skip = False
         csv_file, writer = None, None
         for i, row in enumerate(reader):
             if count % rows_count == 0 and not skip:
                 if file_count > 0:
-                    print(f'Записан {".".join(filename.split(".")[:-1])}_{file_count}.csv')
+                    last_message = f'Записан {".".join(filename.split(".")[:-1])}_{file_count}.csv'
+                    print(last_message)
                 file_count += 1
                 if csv_file:
                     csv_file.close()
                 csv_file = open(f'{".".join(filename.split(".")[:-1])}_{file_count}.csv',
                                 'w', newline='', encoding='utf-8')
                 writer = csv.writer(csv_file, delimiter=delimiter)
-                if (headers and add_headers) or (headers and file_count == 1):
+                if headers and add_headers:
                     writer.writerow(headers)
             if filters:
                 row_data = {header: val for header, val in zip(headers, row)}
@@ -184,13 +186,22 @@ def split_files(filenames, rows_count, data, add_headers=True):
                 skip = False
             else:
                 skip = True
+        new_msg = f'Записан {".".join(filename.split(".")[:-1])}_{file_count}.csv'
+        if new_msg != last_message:
+            print(new_msg)
         if main_file:
             main_file.close()
         if j < len(filenames) - 1:
             print('\n' + '#' * 50 + '\n')
 
 
-def manage_split_files():
+def get_correct_filenames():
+    correct_filenames = [f_name for f_name in os.listdir() if get_extension(f_name) in EXTENSIONS]
+    correct_filenames = list(filter(lambda f_name: not is_empty(f_name), correct_filenames))
+    return correct_filenames
+
+
+def manage_split_files(correct_filenames):
     add_headers = input('Добавлять ли в каждый выходной файл шапку с заголовками? (y\\n) '
                         ).lower() == 'y'
     while True:
@@ -199,15 +210,13 @@ def manage_split_files():
             break
         except ValueError:
             print('Неверный формат, введите число ещё раз')
-    correct_filenames = [f_name for f_name in os.listdir() if get_extension(f_name) in EXTENSIONS]
-    correct_filenames = list(filter(lambda f_name: not is_empty(f_name), correct_filenames))
     data = {filename: {'headers': [], 'filters': {}, 'delimiter': ';'} for filename in correct_filenames}
     for filename in correct_filenames:
         file_has_headers = input(f'Имеет ли {filename} заголовки? (y\\n) ').lower() == 'y'
         if file_has_headers:
             data[filename]['headers'] = get_headers(filename, delimiter=';')
         delimiter = input(f'Введите разделитель в файле {filename} '
-                          f'(нажмите Enter для значения по умолчанию): ')
+                          f'(нажмите Enter для значения по умолчанию: "{DEFAULT_DELIMITER}"): ')
         data[filename]['delimiter'] = delimiter if delimiter else DEFAULT_DELIMITER
     set_filters = input('Будете ли Вы устанавливать фильтры? (y\\n) ').lower() == 'y'
     if set_filters and not any([data[filename]['headers'] for filename in correct_filenames]):
@@ -266,15 +275,64 @@ def manage_split_files():
     split_files(correct_filenames, rows_count, data, add_headers)
 
 
-def unite_files():
-    pass
+def unite_files(output_filename, headers_filename, filenames, delimiter=';', no_headers=False):
+    if not no_headers:
+        skip = not bool(headers_filename)
+        headers = get_headers(headers_filename if headers_filename else filenames[0], delimiter)
+    else:
+        skip, headers = False, []
+    with open(output_filename, 'w', newline='', encoding='utf-8') as csv_file:
+        writer = csv.writer(csv_file, delimiter=delimiter)
+        if headers:
+            writer.writerow(headers)
+        for filename in filenames:
+            reader, main_file = get_reader(filename, delimiter)
+            file_headers = []
+            for i, row in enumerate(reader):
+                if not no_headers and (skip or filename == headers_filename):
+                    if i == 0:
+                        file_headers = row
+                        continue
+                    data = {key: val for key, val in zip(file_headers, row) if key in headers}
+                    row = [data.get(key) for key in headers]
+                row = row if len(row) <= len(headers) or no_headers else row[:len(headers)]
+                writer.writerow(row)
+            print(f'Записан {filename} в {output_filename}')
+            if main_file:
+                main_file.close()
 
 
-def manage_unite_files():
-    pass
+def manage_unite_files(correct_filenames):
+    headers_filename = ''
+    no_headers = False
+    if input('В каждом ли файле первая строка – заголовки шапки? (y\\n) ').lower() != 'y':
+        print(' '.join(correct_filenames))
+        while True:
+            headers_filename = input('Введите название файла, из которого брать заголовки '
+                                     '(если ни в одном нет - /skip): ')
+            if not headers_filename:
+                print('Название файла не может быть пустым')
+            elif headers_filename == '/skip':
+                no_headers = True
+                break
+            elif headers_filename not in correct_filenames:
+                print('Файла нет в директории')
+            else:
+                break
+    delimiter = input('Введите разделитель во всех файлах '
+                      f'(нажмите Enter для значения по умолчанию: "{DEFAULT_DELIMITER}"): ')
+    output_filename = input('Введите название выходного файла: ')
+    if get_extension(output_filename) != 'csv':
+        return print('Выходной файл должен иметь расширение csv')
+    unite_files(output_filename, headers_filename,
+                correct_filenames, delimiter if delimiter else DEFAULT_DELIMITER,
+                no_headers)
 
 
 def main():
+    correct_filenames = get_correct_filenames()
+    if not correct_filenames:
+        return f'В директории нет файлов с подходящим расширением ({", ".join(EXTENSIONS)})'
     actions = {'разбить': manage_split_files, '1': manage_split_files,
                'объединить': manage_unite_files, '2': manage_unite_files}
     while True:
@@ -284,8 +342,10 @@ def main():
             break
         else:
             print('Неверное значение', end='\n\n')
-    action()
+    action(correct_filenames)
 
 
 if __name__ == '__main__':
-    main()
+    callback = main()
+    if callback:
+        print(callback)
