@@ -151,40 +151,43 @@ def validate_by_filters(data, filters):
                 query += subquery
         if i < len(filters.values()) - 1:
             query += ' and '
-    print(f'query: {query}')
-    print(f'eval(query): {eval(query)}')
     return eval(query)
 
 
 def split_files(filenames, rows_count, data, add_headers=True):
-    for filename in filenames:
+    for j, filename in enumerate(filenames):
+        print(f'Разбиваем {filename}')
         headers, filters, delimiter = (data[filename][key] for key in ('headers', 'filters', 'delimiter'))
         count, file_count = 0, 0
         reader, main_file = get_reader(filename, delimiter)
-        print(f'filters: {filters}')
+        skip = False
         csv_file, writer = None, None
-        for row in reader:
-            if count % rows_count == 0 or count == 0:
+        for i, row in enumerate(reader):
+            if count % rows_count == 0 and not skip:
+                if file_count > 0:
+                    print(f'Записан {".".join(filename.split(".")[:-1])}_{file_count}.csv')
                 file_count += 1
                 if csv_file:
                     csv_file.close()
                 csv_file = open(f'{".".join(filename.split(".")[:-1])}_{file_count}.csv',
                                 'w', newline='', encoding='utf-8')
                 writer = csv.writer(csv_file, delimiter=delimiter)
-                if add_headers and headers:
+                if (headers and add_headers) or (headers and file_count == 1):
                     writer.writerow(headers)
-                count += 1
-            else:
-                if filters:
-                    row_data = {header: val for header, val in zip(headers, row)}
-                    print(f'row_data: {row_data}')
-                    proceeded = validate_by_filters(row_data, filters)
-                    if not proceeded:
-                        continue
-                count += 1
+            if filters:
+                row_data = {header: val for header, val in zip(headers, row)}
+                if not validate_by_filters(row_data, filters):
+                    continue
+            if row != headers:
                 writer.writerow(row)
+                count += 1
+                skip = False
+            else:
+                skip = True
         if main_file:
             main_file.close()
+        if j < len(filenames) - 1:
+            print('\n' + '#' * 50 + '\n')
 
 
 def manage_split_files():
@@ -259,10 +262,7 @@ def manage_split_files():
                     continue
             except ValueError:
                 print('Неверно введены значения')
-    print(f'correct_filenames: {correct_filenames}')
-    print(f'rows_count: {rows_count}')
-    print(f'data: {data}')
-    print(f'add_headers: {add_headers}')
+    print()
     split_files(correct_filenames, rows_count, data, add_headers)
 
 
