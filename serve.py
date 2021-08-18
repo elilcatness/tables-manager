@@ -178,6 +178,7 @@ def split_files(filenames, rows_count, data, add_headers=True):
                     writer.writerow(headers)
             if filters:
                 row_data = {header: val for header, val in zip(headers, row)}
+                skip = True
                 if not validate_by_filters(row_data, filters):
                     continue
             if row != headers:
@@ -228,8 +229,8 @@ def manage_split_files(correct_filenames):
         print(' '.join(correct_filenames))
         exit_menu = False
         while True:
-            filename = input('Введите название файла (для выхода - /exit): ')
-            if filename == '/exit':
+            filename = input('Введите название файла (для выхода нажмите Enter): ')
+            if not filename:
                 exit_menu = True
                 break
             if filename.strip() in correct_filenames:
@@ -242,15 +243,15 @@ def manage_split_files(correct_filenames):
         print(f"Столбцы: {';'.join(headers)}")
         print('Введите запросы для фильтрации в виде: НАЗВАНИЕ_СТОЛБЦА ОПЕРАТОР ЗНАЧЕНИЕ '
               '(and/or ОПЕРАТОР ЗНАЧЕНЕИЕ)n',
-              f'Для выхода из меню фильтрации для файла {filename} введите /exit',
+              f'Для выхода из меню фильтрации для файла {filename} нажмите Enter',
               'Для получения операторов и их функций введите /help', sep='\n', end='\n\n')
         while True:
             filter_query = input()
+            if not filter_query:
+                break
             if filter_query == '/help':
                 show_help()
                 continue
-            elif filter_query == '/exit':
-                break
             try:
                 statements = parse_query(filter_query)
                 operators_statements = statements[1::3]
