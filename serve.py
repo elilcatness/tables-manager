@@ -1,5 +1,6 @@
 import csv
 import os
+import time
 
 import openpyxl
 
@@ -17,6 +18,7 @@ def contains(x, y):
 OPERATORS = {'>': (lambda x, y: x > y, 'Больше, чем'),
              '<': (lambda x, y: x < y, 'Меньше, чем'),
              '=': (lambda x, y: x == y, 'Равно'),
+             '!=': (lambda x, y: x != y, 'Не равно'),
              'contains': (contains, 'Содержит'),
              '~contains': (lambda x, y: not contains(x, y), 'Не содержит')}
 
@@ -94,10 +96,6 @@ def parse_query(query):
     while idx < len(query) - 1:
         idx += 1
         if query[idx] == '"':
-            idx += 1
-            if idx == len(query):
-                break
-            statement += query[idx]
             while idx < len(query) - 1 and query[idx + 1] != '"':
                 idx += 1
                 statement += query[idx]
@@ -158,7 +156,6 @@ def get_max_len(filename, delimiter):
     if file:
         file.close()
     return max_len
-
 
 
 def validate_by_filters(data, filters):
@@ -311,7 +308,9 @@ def manage_split_files(correct_filenames):
             except ValueError:
                 print('Неверно введены значения')
     print()
+    start_time = time.time()
     split_files(correct_filenames, rows_count, data, add_headers)
+    print(f'\nОбработал за {time.time() - start_time}')
 
 
 def unite_files(output_filename, headers_filename, filenames, delimiter=';', no_headers=False):
