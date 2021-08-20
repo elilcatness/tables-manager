@@ -1,8 +1,11 @@
 import csv
 import os
+import shutil
 import time
+from typing import Type
 
 import openpyxl
+from openpyxl.workbook.workbook import Workbook
 
 EXTENSIONS = ['csv', 'xls', 'xlsx']
 
@@ -39,9 +42,13 @@ class ExcelIterator:
         raise StopIteration
 
 
-class ExcelReader:
+class Excel:
     def __init__(self, filename, start_from=1):
-        self.workbook = openpyxl.open(filename)
+        self.filename = filename
+        try:
+            self.workbook = openpyxl.open(filename)
+        except FileNotFoundError:
+            self.workbook = Workbook()
         self.start_from = start_from
 
     def get_workbook(self):
@@ -49,6 +56,10 @@ class ExcelReader:
 
     def get_start(self):
         return self.start_from
+
+    def writerow(self, line):
+        self.workbook.active.append(line)
+        self.workbook.save(self.filename)
 
     def __iter__(self):
         return ExcelIterator(self)
@@ -58,13 +69,8 @@ def get_headers(filename, delimiter=';'):
     extension = get_extension(filename)
     if extension not in EXTENSIONS:
         return None
-    if extension == 'csv':
-        f = open(filename, newline='', encoding='utf-8')
-        data_reader = csv.reader(f, delimiter=delimiter)
-    else:
-        f = None
-        data_reader = iter(ExcelReader(filename))
-    headers = next(data_reader)
+    reader, f = get_reader(filename, delimiter)
+    headers = next(iter(reader))
     if f:
         f.close()
     return headers
@@ -128,7 +134,7 @@ def is_empty(filename):
                 return not bool(f.read())
         else:
             try:
-                next(iter(ExcelReader(filename)))
+                next(iter(Excel(filename)))
             except StopIteration:
                 return True
             return False
@@ -136,15 +142,25 @@ def is_empty(filename):
         return True
 
 
-def get_reader(filename, delimiter=';'):
+def get_module(module_type, filename, delimiter=';'):
+    if module_type not in ('reader', 'writer'):
+        raise Exception('Invalid module type')
     extension = get_extension(filename)
-    if get_extension(filename) not in EXTENSIONS:
+    if extension not in EXTENSIONS:
         return None
     if extension == 'csv':
-        file = open(filename, newline='', encoding='utf-8')
-        reader = csv.reader(file, delimiter=delimiter)
-        return reader, file
-    return ExcelReader(filename), None
+        file = open(filename, 'r' if module_type == 'reader' else 'w', newline='', encoding='utf-8')
+        module = getattr(csv, module_type)(file, delimiter=delimiter)
+        return module, file
+    return Excel(filename), None
+
+
+def get_reader(filename, delimiter=';'):
+    return get_module('reader', filename, delimiter=delimiter)
+
+
+def get_writer(filename, delimiter=';'):
+    return get_module('writer', filename, delimiter=delimiter)
 
 
 def get_max_len(filename, delimiter):
@@ -165,18 +181,20 @@ def validate_by_filters(data, filters):
             if isinstance(statement, str):
                 query += f' {statement} '
             else:
+                statement = list(statement)
+                for i in range(len(statement)):
+                    try:
+                        statement[i] = float(statement[i])
+                    except ValueError:
+                        statement[i] = f'"{statement[i]}"'
                 key, operator, val = statement
-                try:
-                    float(val)
-                except ValueError:
-                    val = f'"{val}"'
-                subquery = f'OPERATORS["{operator}"][0](data[{key}], {val})'
+                subquery = f'OPERATORS[{operator}][0](data[{key}], {val})'
                 query += subquery
         if i < len(filters.values()) - 1:
             query += ' and '
     try:
         return eval(query)
-    except KeyError:
+    except (KeyError, TypeError):
         return False
 
 
@@ -186,6 +204,9 @@ def split_files(filenames, rows_count, data, add_headers=True):
         headers, filters, delimiter = (data[filename][key] for key in ('headers', 'filters', 'delimiter'))
         count, file_count = 0, 0
         reader, main_file = get_reader(filename, delimiter)
+        if data[filename].get('pop_filtered_data'):
+            pop_filename = f'temp_{"".join(str(time.time()).split("."))}.{get_extension(filename)}'
+            pop_writer, pop_file = get_writer(pop_filename, delimiter)
         last_message = ''
         skip = False
         csv_file, writer = None, None
@@ -208,6 +229,8 @@ def split_files(filenames, rows_count, data, add_headers=True):
                                    else [i for i in range(len(row))], row)}
                 skip = True
                 if not validate_by_filters(row_data, filters):
+                    if pop_writer:
+                        pop_writer.writerow(row)
                     continue
             if row != headers:
                 writer.writerow(row)
@@ -220,6 +243,10 @@ def split_files(filenames, rows_count, data, add_headers=True):
             print(new_msg)
         if main_file:
             main_file.close()
+        if pop_filename:
+            if pop_file:
+                pop_file.close()
+            shutil.move(pop_filename, filename)
         if j < len(filenames) - 1:
             print('\n' + '#' * 50 + '\n')
 
@@ -276,6 +303,10 @@ def manage_split_files(correct_filenames):
         while True:
             filter_query = input()
             if not filter_query:
+                data[filename]['pop_filtered_data'] = input(
+                    'Удалить ли подходящие по фильтрации данные '
+                    f'из файла {filename}? (y\\n) '
+                ).lower() == 'y'
                 break
             if filter_query == '/help':
                 show_help()
